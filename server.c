@@ -62,9 +62,8 @@ int main(int argc, char *argv[]) {
     while (1) {
         recvfrom(sockfd, &recv_packet, sizeof(Packet), 0,
                 (struct sockaddr *)&client_addr, &addrlen);
-        if (recv_packet.flag != SYN_ACK) {
-        printf("Expected SYN-ACK packet! Received %d instead, ignoring\n",
-                recv_packet.flag);
+        if (recv_packet.flag != SYN) {
+            printf("Expected SYN packet! Received %d instead, ignoring\n", recv_packet.flag);
         } else {
         if (recv_packet.ack != 0) {
             printf("Received incorrect ACK, ignoring.\n");
