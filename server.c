@@ -28,7 +28,7 @@ int main(int argc, char *argv[]) {
     }
 
     int sockfd;
-    struct sockaddr_in client_addr;
+    struct sockaddr_in client_addr, server_addr;
     socklen_t addrlen = sizeof(client_addr);
     int port = atoi(argv[1]);
     //fprintf(stdout, "Port: %d\n", port);
@@ -36,6 +36,21 @@ int main(int argc, char *argv[]) {
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         printf("Error opening socket");
+        exit(EXIT_FAILURE);
+    }
+    /*
+    * build the server's Internet address
+    */
+    bzero((char *) &server_addr, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    server_addr.sin_port = htons((unsigned short)port);
+    /* 
+    * bind: associate the parent socket with a port 
+    */
+    if (bind(sockfd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
+        printf("ERROR on binding");
+        close(sockfd);
         exit(EXIT_FAILURE);
     }
     memset((char *)&client_addr, 0, sizeof(client_addr));
