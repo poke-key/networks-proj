@@ -1,0 +1,4 @@
+# Create a test input file with some content
+echo "This is a test file for UDP file transfer.
+Testing Go-Back-N protocol with actual file content.
+Multiple lines to ensure we have enough data to transfer!" > input.txt

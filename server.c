@@ -9,6 +9,7 @@
 #define MAX_PKT_NUM 255
 #define TIMEOUT_SEC 1
 #define TIMEOUT_USEC 0
+#define MAX_PAYLOAD 1024
 
 /* Define control flags */
 #define SYN 1
@@ -21,7 +22,8 @@ typedef struct {
     int seq;      /* Sequence number */
     int ack;      /* Acknowledgement number */
     int flag;     /* Control flag. Indicate type of packet */
-    char payload; /* Data payload (1 character for this project) */
+    char payload[MAX_PAYLOAD]; /* Data payload for file content */
+    size_t payload_size;      /* Actual size of payload */
 } Packet;
 
 /* Function to set socket timeout */
@@ -33,10 +35,23 @@ void set_socket_timeout(int sockfd, int sec, int usec) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <server_port>\n", argv[0]);
+    if (argc < 3) {
+        fprintf(stderr, "Usage: %s <server_port> <file_to_send>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
+
+    // Open the file to send
+    FILE *file = fopen(argv[2], "rb");
+    if (!file) {
+        perror("Error opening file");
+        exit(EXIT_FAILURE);
+    }
+
+    // Get file size
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    printf("File size: %ld bytes\n", file_size);
 
     int sockfd;
     struct sockaddr_in client_addr, server_addr;
@@ -47,6 +62,7 @@ int main(int argc, char *argv[]) {
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         perror("Error opening socket");
+        fclose(file);
         exit(EXIT_FAILURE);
     }
     printf("Socket created successfully\n");
@@ -59,6 +75,7 @@ int main(int argc, char *argv[]) {
     if (bind(sockfd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
         perror("ERROR on binding");
         close(sockfd);
+        fclose(file);
         exit(EXIT_FAILURE);
     }
     printf("Socket bound successfully\n");
@@ -66,7 +83,6 @@ int main(int argc, char *argv[]) {
     Packet send_packet, recv_packet;
     int cur_seq = 0;
     int client_seq = 0;
-    char send_char = 'A';
 
     // Step 1: Three-way handshake
     printf("Waiting for SYN packet...\n");
@@ -83,7 +99,7 @@ int main(int argc, char *argv[]) {
             send_packet.seq = cur_seq;
             send_packet.ack = client_seq;
             send_packet.flag = SYN_ACK;
-            send_packet.payload = 0;
+            send_packet.payload_size = 0;
             
             sendto(sockfd, &send_packet, sizeof(Packet), 0,
                   (struct sockaddr *)&client_addr, addrlen);
@@ -118,11 +134,11 @@ int main(int argc, char *argv[]) {
         }
         
         if (window_size == 0) {
-            window_size = recv_packet.payload;
+            window_size = atoi(recv_packet.payload);
             client_seq = recv_packet.seq;
             printf("Received window size N=%d\n", window_size);
         } else {
-            total_bytes = recv_packet.payload;
+            total_bytes = atoi(recv_packet.payload);
             client_seq = recv_packet.seq;
             printf("Received byte request S=%d\n", total_bytes);
             break;
@@ -142,18 +158,20 @@ int main(int argc, char *argv[]) {
     int window_end = window_start + current_window_size - 1;
     int loss_in_window = 0;
 
-    printf("Starting data transmission...\n");
+    printf("Starting file transmission...\n");
     while (base <= total_bytes) {
         // Send packets within window
         while (next_seq_num < base + current_window_size && next_seq_num <= total_bytes) {
+            // Read chunk from file
+            size_t bytes_read = fread(send_packet.payload, 1, MAX_PAYLOAD, file);
+            send_packet.payload_size = bytes_read;
             send_packet.seq = next_seq_num;
             send_packet.ack = expected_ack;
             send_packet.flag = ACK;
-            send_packet.payload = send_char++;
             
             sendto(sockfd, &send_packet, sizeof(Packet), 0,
                   (struct sockaddr *)&client_addr, addrlen);
-            printf("Sent data packet %d (ack=%d)\n", next_seq_num, expected_ack);
+            printf("Sent data packet %d (ack=%d, size=%zu)\n", next_seq_num, expected_ack, bytes_read);
             next_seq_num++;
         }
 
@@ -162,12 +180,12 @@ int main(int argc, char *argv[]) {
                     (struct sockaddr *)&client_addr, &addrlen) < 0) {
             // Timeout occurred
             printf("Timeout, resending window from sequence %d\n", base);
+            fseek(file, (base - 1) * MAX_PAYLOAD, SEEK_SET);  // Reset file position
             next_seq_num = base;
-            send_char = 'A' + (base - 1);  // Reset character
             window_start = base;
             window_end = window_start + current_window_size - 1;
-            successful_windows = 0;  // Reset successful windows count
-            loss_in_window = 1;      // Mark loss in current window
+            successful_windows = 0;
+            loss_in_window = 1;
             
             if (current_window_size == window_size) {
                 current_window_size = window_size / 2;
@@ -183,29 +201,27 @@ int main(int argc, char *argv[]) {
             if (recv_packet.ack >= base) {
                 printf("Received valid ACK for packet %d\n", recv_packet.ack);
                 base = recv_packet.ack + 1;
+                fseek(file, (base - 1) * MAX_PAYLOAD, SEEK_SET);  // Update file position
 
-                // Check if we completed a window successfully
                 if (base > window_end) {
                     if (!loss_in_window) {
                         successful_windows++;
                         printf("Completed window successfully (%d/2)\n", successful_windows);
                     }
                     
-                    // If we have two successful windows and reduced window size
                     if (successful_windows >= 2 && current_window_size < window_size) {
                         current_window_size = window_size;
                         printf("Restored window size to %d after two successful windows\n", current_window_size);
                         successful_windows = 0;
                     }
                     
-                    // Start new window
                     window_start = base;
                     window_end = window_start + current_window_size - 1;
                     loss_in_window = 0;
                 }
             } else {
                 printf("Received duplicate ACK %d\n", recv_packet.ack);
-                loss_in_window = 1;  // Mark loss in current window
+                loss_in_window = 1;
                 successful_windows = 0;
             }
         }
@@ -215,11 +231,12 @@ int main(int argc, char *argv[]) {
     send_packet.seq = next_seq_num;
     send_packet.ack = expected_ack;
     send_packet.flag = RST;
-    send_packet.payload = 0;
+    send_packet.payload_size = 0;
     sendto(sockfd, &send_packet, sizeof(Packet), 0,
            (struct sockaddr *)&client_addr, addrlen);
     printf("Sent RST packet, transmission complete\n");
 
+    fclose(file);
     close(sockfd);
     return 0;
 }
