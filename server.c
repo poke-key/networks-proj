@@ -138,6 +138,9 @@ int main(int argc, char *argv[]) {
     int current_window_size = window_size;
     int expected_ack = client_seq;
     int window_start = 1;
+    int successful_windows = 0;
+    int window_end = window_start + current_window_size - 1;
+    int loss_in_window = 0;
 
     printf("Starting data transmission...\n");
     while (base <= total_bytes) {
@@ -161,7 +164,10 @@ int main(int argc, char *argv[]) {
             printf("Timeout, resending window from sequence %d\n", base);
             next_seq_num = base;
             send_char = 'A' + (base - 1);  // Reset character
-            window_start = base;  // Mark where this window started
+            window_start = base;
+            window_end = window_start + current_window_size - 1;
+            successful_windows = 0;  // Reset successful windows count
+            loss_in_window = 1;      // Mark loss in current window
             
             if (current_window_size == window_size) {
                 current_window_size = window_size / 2;
@@ -177,15 +183,30 @@ int main(int argc, char *argv[]) {
             if (recv_packet.ack >= base) {
                 printf("Received valid ACK for packet %d\n", recv_packet.ack);
                 base = recv_packet.ack + 1;
-                
-                // Only restore window if we've successfully sent all packets in the current window
-                if (current_window_size < window_size && base > window_start + current_window_size) {
-                    current_window_size = window_size;
-                    printf("Restored window size to %d\n", current_window_size);
+
+                // Check if we completed a window successfully
+                if (base > window_end) {
+                    if (!loss_in_window) {
+                        successful_windows++;
+                        printf("Completed window successfully (%d/2)\n", successful_windows);
+                    }
+                    
+                    // If we have two successful windows and reduced window size
+                    if (successful_windows >= 2 && current_window_size < window_size) {
+                        current_window_size = window_size;
+                        printf("Restored window size to %d after two successful windows\n", current_window_size);
+                        successful_windows = 0;
+                    }
+                    
+                    // Start new window
                     window_start = base;
+                    window_end = window_start + current_window_size - 1;
+                    loss_in_window = 0;
                 }
             } else {
                 printf("Received duplicate ACK %d\n", recv_packet.ack);
+                loss_in_window = 1;  // Mark loss in current window
+                successful_windows = 0;
             }
         }
     }
