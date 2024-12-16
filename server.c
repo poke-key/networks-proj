@@ -137,6 +137,7 @@ int main(int argc, char *argv[]) {
     int next_seq_num = 1;
     int current_window_size = window_size;
     int expected_ack = client_seq;
+    int window_start = 1;
 
     printf("Starting data transmission...\n");
     while (base <= total_bytes) {
@@ -160,6 +161,7 @@ int main(int argc, char *argv[]) {
             printf("Timeout, resending window from sequence %d\n", base);
             next_seq_num = base;
             send_char = 'A' + (base - 1);  // Reset character
+            window_start = base;  // Mark where this window started
             
             if (current_window_size == window_size) {
                 current_window_size = window_size / 2;
@@ -175,9 +177,12 @@ int main(int argc, char *argv[]) {
             if (recv_packet.ack >= base) {
                 printf("Received valid ACK for packet %d\n", recv_packet.ack);
                 base = recv_packet.ack + 1;
-                if (current_window_size < window_size) {
+                
+                // Only restore window if we've successfully sent all packets in the current window
+                if (current_window_size < window_size && base > window_start + current_window_size) {
                     current_window_size = window_size;
                     printf("Restored window size to %d\n", current_window_size);
+                    window_start = base;
                 }
             } else {
                 printf("Received duplicate ACK %d\n", recv_packet.ack);
