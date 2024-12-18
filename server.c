@@ -26,7 +26,13 @@ typedef struct {
     size_t payload_size;      /* Actual size of payload */
 } Packet;
 
-/* Function to set socket timeout */
+/* 
+Function to set socket timeout 
+used instead of the select() function because it has the same goal, this one let's recvfrom() 
+automatically timeout after specificed period
+
+select() would let us wait for socket events and timeout after a certain period
+*/
 void set_socket_timeout(int sockfd, int sec, int usec) {
     struct timeval timeout;
     timeout.tv_sec = sec;
@@ -40,14 +46,14 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    // Open the file to send
+    //open the file to send
     FILE *file = fopen(argv[2], "rb");
     if (!file) {
         perror("Error opening file");
         exit(EXIT_FAILURE);
     }
 
-    // Get file size
+    //get file size
     fseek(file, 0, SEEK_END);
     long file_size = ftell(file);
     fseek(file, 0, SEEK_SET);
@@ -108,7 +114,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Wait for final ACK
+    //wait for final ACK
     printf("Waiting for ACK...\n");
     while (1) {
         if (recvfrom(sockfd, &recv_packet, sizeof(Packet), 0,
@@ -145,7 +151,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Set timeout for Go-Back-N
+    //call the function to set timeout for Go-Back-N
     set_socket_timeout(sockfd, TIMEOUT_SEC, TIMEOUT_USEC);
 
     // Step 3: Implement Go-Back-N protocol
@@ -160,9 +166,9 @@ int main(int argc, char *argv[]) {
 
     printf("Starting file transmission...\n");
     while (base <= total_bytes) {
-        // Send packets within window
+        //send packets within window
         while (next_seq_num < base + current_window_size && next_seq_num <= total_bytes) {
-            // Read chunk from file
+            //read chunk from file
             size_t bytes_read = fread(send_packet.payload, 1, MAX_PAYLOAD, file);
             send_packet.payload_size = bytes_read;
             send_packet.seq = next_seq_num;
@@ -178,9 +184,9 @@ int main(int argc, char *argv[]) {
         // Wait for ACK
         if (recvfrom(sockfd, &recv_packet, sizeof(Packet), 0,
                     (struct sockaddr *)&client_addr, &addrlen) < 0) {
-            // Timeout occurred
+            //timeout has occured
             printf("Timeout, resending window from sequence %d\n", base);
-            fseek(file, (base - 1) * MAX_PAYLOAD, SEEK_SET);  // Reset file position
+            fseek(file, (base - 1) * MAX_PAYLOAD, SEEK_SET);  //reset file position
             next_seq_num = base;
             window_start = base;
             window_end = window_start + current_window_size - 1;
@@ -201,7 +207,7 @@ int main(int argc, char *argv[]) {
             if (recv_packet.ack >= base) {
                 printf("Received valid ACK for packet %d\n", recv_packet.ack);
                 base = recv_packet.ack + 1;
-                fseek(file, (base - 1) * MAX_PAYLOAD, SEEK_SET);  // Update file position
+                fseek(file, (base - 1) * MAX_PAYLOAD, SEEK_SET);  //update file position
 
                 if (base > window_end) {
                     if (!loss_in_window) {
@@ -227,7 +233,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Send RST packet
+    //send the RST packet
     send_packet.seq = next_seq_num;
     send_packet.ack = expected_ack;
     send_packet.flag = RST;
@@ -236,7 +242,7 @@ int main(int argc, char *argv[]) {
            (struct sockaddr *)&client_addr, addrlen);
     printf("Sent RST packet, transmission complete\n");
 
-    fclose(file);
-    close(sockfd);
+    fclose(file); //close file
+    close(sockfd); //close socket
     return 0;
 }
