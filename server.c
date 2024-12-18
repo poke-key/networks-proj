@@ -215,7 +215,10 @@ int main(int argc, char *argv[]) {
                     }
                     
                     if (successful_windows >= 2 && current_window_size < window_size) {
-                        current_window_size = window_size;
+                        current_window_size = current_window_size * 2;  //double the current size
+                        if (current_window_size > window_size) {
+                            current_window_size = window_size;  //make sure it doesn't exceed max
+                        }
                         printf("Restored window size to %d after two successful windows\n", current_window_size);
                         successful_windows = 0;
                     }
