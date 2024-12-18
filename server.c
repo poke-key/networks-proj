@@ -193,11 +193,10 @@ int main(int argc, char *argv[]) {
             successful_windows = 0;
             loss_in_window = 1;
             
-            if (current_window_size == window_size) {
-                current_window_size = window_size / 2;
-                if (current_window_size < 1) current_window_size = 1;
-                printf("Reduced window size to %d\n", current_window_size);
-            }
+            current_window_size = current_window_size / 2;
+            if (current_window_size < 1) current_window_size = 1;
+            printf("Reduced window size to %d\n", current_window_size);
+            
             continue;
         }
 
